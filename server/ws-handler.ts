@@ -28,7 +28,11 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
     if (ws.readyState === 1 || ws.readyState === (WebSocket as any)?.OPEN) {
       try {
         const payload = JSON.stringify(message);
-        ws.send(payload);
+        ws.send(payload, (err) => {
+          if (err) {
+            logDebug(`SEND ERROR for ${message.type}: ${err.message}`);
+          }
+        });
         logDebug(`SENT ${message.type} (length=${payload.length})`);
       } catch (err: any) {
         logDebug(`ERROR sending ${message.type}: ${err?.message}`);
@@ -85,6 +89,16 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
     };
     clientSessions.set(ws, session);
     logDebug(`NEW CLIENT CONNECTED. Active clientSessions=${clientSessions.size}, wss.clients=${wss.clients.size}`);
+
+    const rawSocket = (ws as any)._socket;
+    if (rawSocket) {
+      rawSocket.on('error', (err: any) => {
+        logDebug(`RAW SOCKET ERROR: ${err?.code || 'UNKNOWN'} - ${err?.message}`);
+      });
+      rawSocket.on('close', (hadError: boolean) => {
+        logDebug(`RAW SOCKET CLOSE: hadError=${hadError}`);
+      });
+    }
 
     ws.on('message', (raw) => {
       const rawStr = raw.toString();
@@ -150,7 +164,7 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
             ws
           );
 
-          // System notification
+          // System notification (broadcasted after a short tick so room:init is acknowledged cleanly)
           const joinNotice: ChatMessage = {
             id: `sys-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
             senderId: 'system',
@@ -160,7 +174,11 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
             timestamp: Date.now(),
             isSystem: true,
           };
-          broadcastToRoom(session.roomCode, { type: 'chat', message: joinNotice });
+          setTimeout(() => {
+            if (session.roomCode) {
+              broadcastToRoom(session.roomCode, { type: 'chat', message: joinNotice });
+            }
+          }, 150);
           return;
         }
 
