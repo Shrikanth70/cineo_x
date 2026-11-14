@@ -67,6 +67,7 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
       chatTimestamps: [],
     };
     clientSessions.set(ws, session);
+    console.log(`[Cinéo WS] New client connected. Total connected clients: ${clientSessions.size}`);
 
     ws.on('message', (raw) => {
       try {
@@ -74,6 +75,7 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
         const result = ClientMessageSchema.safeParse(parsedJson);
 
         if (!result.success) {
+          console.warn('[Cinéo WS] Ignored invalid client message:', result.error.format());
           return;
         }
 
@@ -92,6 +94,7 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
         // Handle Join
         if (msg.type === 'join') {
           const { roomCode, roomTitle, participantId, name, avatar, movieModeMic, agreed18Plus } = msg;
+          console.log(`[Cinéo WS] Participant "${name}" (${participantId}) joining room "${roomCode}"`);
 
           if (!agreed18Plus) {
             send(ws, { type: 'error', message: '18+ or parental permission is required to enter.' });
@@ -338,3 +341,4 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
     });
   });
 }
+

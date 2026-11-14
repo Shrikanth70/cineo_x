@@ -50,7 +50,20 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
   } | null>(null);
 
   const getWsUrl = useCallback(() => {
-    if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+    let configured = process.env.NEXT_PUBLIC_WS_URL?.trim();
+    if (configured) {
+      // Normalize https:// -> wss:// and http:// -> ws://
+      if (configured.startsWith('https://')) {
+        configured = 'wss://' + configured.slice(8);
+      } else if (configured.startsWith('http://')) {
+        configured = 'ws://' + configured.slice(7);
+      } else if (!configured.startsWith('ws://') && !configured.startsWith('wss://')) {
+        configured = 'wss://' + configured;
+      }
+      // Strip trailing slash
+      return configured.replace(/\/+$/, '');
+    }
+
     if (typeof window !== 'undefined') {
       const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       if (window.location.port === '3000') {
@@ -82,10 +95,13 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
     setStatus(reconnectAttemptsRef.current === 0 ? 'connecting' : 'reconnecting');
 
     try {
-      const socket = new WebSocket(getWsUrl());
+      const targetUrl = getWsUrl();
+      console.log('[Cinéo WS Client] Attempting connection to:', targetUrl);
+      const socket = new WebSocket(targetUrl);
       wsRef.current = socket;
 
       socket.onopen = () => {
+        console.log('[Cinéo WS Client] Connected successfully to', targetUrl);
         setStatus('connected');
         reconnectAttemptsRef.current = 0;
 

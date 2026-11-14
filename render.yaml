@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: cineo-x
+    env: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
