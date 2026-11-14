@@ -56,8 +56,17 @@ app.prepare().then(() => {
 
   server.on('upgrade', (req, socket, head) => {
     console.log(`[Cinéo WS] Incoming upgrade request: url=${req.url} origin=${req.headers.origin || 'unknown'}`);
-    socket.on('error', (err) => {
-      console.error('[Cinéo WS Socket Error]', err.message);
+    socket.on('error', (err: any) => {
+      // Ignore routine socket disconnect / reload teardown
+      if (
+        err?.code === 'ERR_STREAM_WRITE_AFTER_END' ||
+        err?.message?.includes('write after end') ||
+        err?.code === 'ECONNRESET' ||
+        err?.code === 'EPIPE'
+      ) {
+        return;
+      }
+      console.error('[Cinéo WS Socket Error]', err?.message);
     });
 
     wss.handleUpgrade(req, socket, head, (ws) => {

@@ -41,6 +41,7 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
   const reconnectAttemptsRef = useRef<number>(0);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasSentJoinRef = useRef<boolean>(false);
   const joinParamsRef = useRef<{
     roomCode: string;
     participantId: string;
@@ -260,39 +261,12 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
+      hasSentJoinRef.current = false;
       if (wsRef.current) {
         wsRef.current.close();
       }
     };
   }, [connect]);
-
-  useEffect(() => {
-    if (status === 'connected' && !room) {
-      const prefs = safeStorage.getUserPrefs();
-      if (prefs.name && prefs.agreed18Plus) {
-        const pId = myId || `p-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-        setMyId(pId);
-        const recent = safeStorage.getRecentParties().find((p) => p.code === roomCode);
-        joinParamsRef.current = {
-          roomCode,
-          participantId: pId,
-          name: prefs.name,
-          avatar: prefs.avatar || 'popcorn',
-          movieModeMic: prefs.movieModeMic || false,
-        };
-        send({
-          type: 'join',
-          roomCode,
-          roomTitle: recent?.title,
-          participantId: pId,
-          name: prefs.name,
-          avatar: prefs.avatar || 'popcorn',
-          agreed18Plus: true,
-          movieModeMic: prefs.movieModeMic || false,
-        });
-      }
-    }
-  }, [status, room, roomCode, myId, send]);
 
   const join = useCallback(
     (name: string, avatar: AvatarId, agreed18Plus: boolean, movieModeMic = false) => {
