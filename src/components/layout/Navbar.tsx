@@ -12,6 +12,10 @@ export function Navbar() {
   const [searchModalOpen, setSearchModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  if (pathname?.startsWith('/watch-party/')) {
+    return null;
+  }
+
   return (
     <>
       <header className="sticky top-0 z-40 w-full border-b border-border-hairline bg-background/85 backdrop-blur-md">

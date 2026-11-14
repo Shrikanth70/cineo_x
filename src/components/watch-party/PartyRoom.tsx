@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { useWatchParty } from '@/hooks/useWatchParty';
 import { MediaSourceType, MediaSourceState } from '@shared/types';
 import { OttSource } from './sources/OttSource';
@@ -8,7 +9,6 @@ import { YouTubeSource } from './sources/YouTubeSource';
 import { VideoFileSource } from './sources/VideoFileSource';
 import { ScreenShareSource } from './sources/ScreenShareSource';
 import { PlayerBar } from './PlayerBar';
-import { ControlDock } from './ControlDock';
 import { EmojiReactions } from './EmojiReactions';
 import { ParticipantStrip } from './ParticipantStrip';
 import { ChatPanel } from './ChatPanel';
@@ -20,7 +20,6 @@ import {
   Check,
   MessageSquare,
   AlertCircle,
-  Wifi,
   RefreshCw,
   Users,
   Mic,
@@ -30,6 +29,8 @@ import {
   Maximize,
   Minimize,
   Lock,
+  ChevronLeft,
+  Settings,
 } from 'lucide-react';
 
 export interface PartyRoomProps {
@@ -42,11 +43,11 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [fullscreenChatOpen, setFullscreenChatOpen] = useState(false);
 
-  const handleRtcSignal = React.useCallback((fromPeerId: string, signal: unknown) => {
+  // WebRTC Signal dispatcher
+  const handleRtcSignal = (fromPeerId: string, signal: unknown) => {
     rtcManagerRef.current?.handleSignal(fromPeerId, signal);
-  }, []);
+  };
 
   const {
     status,
@@ -68,7 +69,6 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
     endBreak,
     sendChatMessage,
     sendReaction,
-    toggleHandRaised,
     toggleMedia,
     sendRtcSignal,
     reconnect,
@@ -76,14 +76,12 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
 
   const [activeTab, setActiveTab] = useState<MediaSourceType>('ott');
   const [copiedLink, setCopiedLink] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-  const [participantsOpen, setParticipantsOpen] = useState(false);
   const [localMuted, setLocalMuted] = useState(false);
   const [localCameraOn, setLocalCameraOn] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'chat' | 'party'>('chat');
+  const [mobileTab, setMobileTab] = useState<'chat' | 'party' | 'controls'>('chat');
   const [remoteBroadcastStream, setRemoteBroadcastStream] = useState<MediaStream | null>(null);
 
-  // Initialize WebRTC Mesh Manager for camera and microphone exchange
+  // Initialize WebRTC Mesh Manager for camera, microphone, and broadcast media
   useEffect(() => {
     if (!myId) return;
 
@@ -147,32 +145,6 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
     };
   }, []);
 
-  // Handle Space key for push-to-talk when movie-mode mic is active
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
-      if (e.code === 'Space' && currentParticipant?.movieModeMic) {
-        setLocalMuted(false);
-        rtcManagerRef.current?.toggleMute(false);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
-      if (e.code === 'Space' && currentParticipant?.movieModeMic) {
-        setLocalMuted(true);
-        rtcManagerRef.current?.toggleMute(true);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [currentParticipant?.movieModeMic]);
-
   const handleShareInvite = async () => {
     const inviteUrl = typeof window !== 'undefined' ? `${window.location.origin}/watch-party#join=${roomCode}` : '';
     if (navigator.share) {
@@ -201,7 +173,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
   };
 
   const handleTabChange = (tab: MediaSourceType) => {
-    if (!isHost) return; // Viewers are locked to host's source to prevent sync breakage
+    if (!isHost) return;
     setActiveTab(tab);
     if (room) {
       setSource({
@@ -267,8 +239,8 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
 
   if (!room) {
     return (
-      <div className="flex min-h-[70vh] flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-amber-accent border-t-transparent mb-4" />
+      <div className="flex min-h-[100dvh] flex-col items-center justify-center p-6 text-center max-w-md mx-auto bg-background">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-amber-accent border-t-transparent mb-4 shadow-glow" />
         <h2 className="font-serif text-xl font-bold text-white">Connecting to Cinéo Room...</h2>
         <p className="mt-1 text-xs text-zinc-400">Synchronizing with host and room presence.</p>
 
@@ -278,7 +250,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             <span className="font-semibold text-amber-accent uppercase tracking-wider">{status}</span>
           </div>
           <p className="text-[11px] text-zinc-400 leading-relaxed">
-            • <strong>Live Synchronization:</strong> Establishing real-time NTP clock and WebRTC peer mesh.
+            • <strong>Live Synchronization:</strong> Synchronizing high-precision clock &amp; WebRTC mesh.
           </p>
         </div>
 
@@ -287,14 +259,14 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
           className="mt-4 rounded-full border border-amber-border bg-amber-dim px-5 py-2 text-xs font-semibold text-amber-accent hover:bg-amber-accent hover:text-background transition-colors flex items-center gap-1.5"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          <span>Rejoin & Resync</span>
+          <span>Rejoin &amp; Resync</span>
         </button>
       </div>
     );
   }
 
   const participantCount = room.participants.length;
-  const statusHeadline = participantCount <= 1 ? 'Waiting for friends · share the invite' : `${participantCount} friends watching`;
+  const statusHeadline = participantCount <= 1 ? 'Waiting for friends · share invite' : `${participantCount} friends watching`;
 
   const sourceLabels: Record<MediaSourceType, string> = {
     ott: 'Any OTT',
@@ -304,24 +276,66 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100dvh-4rem)] w-full bg-background overflow-hidden">
-      {/* Top Header Bar */}
-      <header className="flex items-center justify-between border-b border-border-hairline bg-surface/90 px-3 py-2 sm:px-6 sm:py-3 shrink-0">
+    <div className="flex flex-col h-[100dvh] w-full bg-background overflow-hidden">
+      {/* ========================================================= */}
+      {/* Top Header Bar (Unified for Both Desktop & Mobile)        */}
+      {/* ========================================================= */}
+      <header className="flex h-12 items-center justify-between border-b border-border-hairline bg-surface/95 px-3 sm:px-6 shrink-0 z-20">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <Link
+            href="/watch-party"
+            className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/10 bg-surface text-zinc-400 hover:text-white hover:bg-white/5 transition-colors"
+            title="Leave party & return to Watch Party lobby"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </Link>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="font-serif text-sm sm:text-base font-bold text-white tracking-tight line-clamp-1">
+              <h1 className="font-serif text-xs sm:text-sm font-bold text-white tracking-tight line-clamp-1">
                 {room.title}
               </h1>
-              <span className="hidden sm:inline-block rounded bg-surface-elevated border border-border-hairline px-1.5 py-0.5 font-mono text-[11px] text-zinc-300">
+              <span className="hidden sm:inline-block rounded bg-surface-elevated border border-border-hairline px-1.5 py-0.5 font-mono text-[10px] text-zinc-300">
                 {room.code}
               </span>
             </div>
-            <p className="text-[10px] sm:text-[11px] text-zinc-400 hidden xs:block">{statusHeadline}</p>
+            <p className="text-[10px] text-zinc-400 hidden xs:block">{statusHeadline}</p>
           </div>
         </div>
 
+        {/* Center: Desktop Host Source Tabs or Viewer Lock Badge */}
+        <div className="hidden lg:flex items-center justify-center">
+          {isHost ? (
+            <div className="flex items-center gap-1 rounded-full border border-border-hairline bg-surface-card p-0.5 shadow-inner">
+              {(['ott', 'youtube', 'file', 'screen'] as MediaSourceType[]).map((tab) => {
+                const active = activeTab === tab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => handleTabChange(tab)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all ${
+                      active
+                        ? 'bg-amber-accent text-background font-semibold shadow-glow'
+                        : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {sourceLabels[tab]}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-surface-card/90 px-3 py-1 text-[11px] text-zinc-300 shadow-sm">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="font-semibold text-white">{sourceLabels[room.source.type]}</span>
+              <span className="text-[10px] text-zinc-400 flex items-center gap-1">
+                <Lock className="h-2.5 w-2.5 text-amber-accent/80" /> Synced with Host
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Right Action Icons */}
         <div className="flex items-center gap-2">
           {/* Connection status with One-Click Rejoin / Resync */}
           <div className="flex items-center">
@@ -340,7 +354,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
               <button
                 type="button"
                 onClick={() => reconnect()}
-                className="flex items-center gap-1.5 rounded-full bg-rose-500/20 border border-rose-500/40 px-3 py-1 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/30 transition-colors animate-pulse"
+                className="flex items-center gap-1.5 rounded-full bg-rose-500/20 border border-rose-500/40 px-2.5 py-1 text-[11px] font-semibold text-rose-300 hover:bg-rose-500/30 transition-colors animate-pulse"
               >
                 <RefreshCw className="h-3 w-3 animate-spin text-rose-300" />
                 <span>Rejoin</span>
@@ -348,7 +362,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             )}
           </div>
 
-          {/* Quick Mic & Camera Toggles in header for instant access */}
+          {/* Quick Mic & Camera Toggles */}
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -389,57 +403,44 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
       </header>
 
       {errorNotice && (
-        <div className="flex items-center gap-2 bg-rose-500/10 border-b border-rose-500/20 px-4 py-1.5 text-xs text-rose-300 shrink-0">
+        <div className="flex items-center gap-2 bg-rose-500/10 border-b border-rose-500/20 px-4 py-1 text-xs text-rose-300 shrink-0">
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>{errorNotice}</span>
         </div>
       )}
 
       {/* Main Party Room Body */}
-      <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+      <div className="flex flex-1 min-h-0 w-full overflow-hidden flex-col md:flex-row">
         {/* ========================================================= */}
-        {/* DESKTOP VIEW (md+): Dual-pane (Left Player, Right Chat)  */}
+        {/* DESKTOP VIEW (md+): Theater Left Stage, Docked Right Chat */}
         {/* ========================================================= */}
-        <div className="hidden md:flex flex-1 flex-col justify-between overflow-y-auto p-4 lg:p-5">
-          {/* Host Tabs or Viewer Sync Status Badge */}
-          {isHost ? (
-            <div className="flex items-center justify-center pb-3">
+        <div className="hidden md:flex flex-1 min-w-0 flex-col justify-between overflow-y-auto p-4 lg:p-5">
+          {/* Tablet host tabs if < lg */}
+          {isHost && (
+            <div className="flex lg:hidden items-center justify-center pb-2">
               <div className="flex items-center gap-1 rounded-full border border-border-hairline bg-surface-card p-1 shadow-inner">
-                {(['ott', 'youtube', 'file', 'screen'] as MediaSourceType[]).map((tab) => {
-                  const active = activeTab === tab;
-                  return (
-                    <button
-                      key={tab}
-                      type="button"
-                      onClick={() => handleTabChange(tab)}
-                      className={`rounded-full px-3.5 py-1.5 text-xs font-medium transition-all ${
-                        active
-                          ? 'bg-amber-accent text-background font-semibold shadow-glow'
-                          : 'text-zinc-400 hover:text-white hover:bg-white/5'
-                      }`}
-                    >
-                      {sourceLabels[tab]}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-center pb-2.5">
-              <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-surface-card/90 px-3.5 py-1.5 text-xs text-zinc-300 shadow-sm">
-                <span className="flex h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-semibold text-white">{sourceLabels[room.source.type]}</span>
-                <span className="text-[11px] text-zinc-400 flex items-center gap-1">
-                  <Lock className="h-3 w-3 text-amber-accent/80" /> Synchronized with Host
-                </span>
+                {(['ott', 'youtube', 'file', 'screen'] as MediaSourceType[]).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => handleTabChange(tab)}
+                    className={`rounded-full px-3 py-1 text-[11px] font-medium transition-all ${
+                      activeTab === tab
+                        ? 'bg-amber-accent text-background font-semibold shadow-glow'
+                        : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {sourceLabels[tab]}
+                  </button>
+                ))}
               </div>
             </div>
           )}
 
-          {/* Desktop Media Player Viewport Container */}
+          {/* Grand 16:9 Cinema Player Stage */}
           <div
             ref={playerContainerRef}
-            className="relative flex-1 min-h-[360px] rounded-2xl border border-border-hairline bg-black overflow-hidden flex flex-col justify-center shadow-2xl"
+            className="relative w-full aspect-video max-h-[calc(100dvh-200px)] rounded-2xl border border-white/10 bg-black overflow-hidden flex items-center justify-center shadow-2xl mx-auto my-auto"
           >
             {activeTab === 'ott' && (
               <OttSource
@@ -482,10 +483,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             )}
 
             {/* Overlays: Floating Reactions, Countdown, Break */}
-            <EmojiReactions
-              reactions={floatingReactions}
-              onSendReaction={sendReaction}
-            />
+            <EmojiReactions reactions={floatingReactions} />
             <CountdownOverlay countdown={room.countdown} ntp={ntp} />
             <BreakOverlay
               breakState={room.breakState}
@@ -507,8 +505,8 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             </div>
           </div>
 
-          {/* Bottom Player Controls & Participant WebRTC Strip */}
-          <div className="mt-3 space-y-3">
+          {/* Bottom Controls: Unified Player Bar & Sleek Participant Dock */}
+          <div className="mt-3 space-y-2.5 shrink-0">
             <PlayerBar
               player={room.player}
               participants={room.participants}
@@ -535,8 +533,8 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
           </div>
         </div>
 
-        {/* Desktop Chat Panel */}
-        <div className="hidden md:flex">
+        {/* Desktop Docked Live Chat Sidebar (Always Visible on Right) */}
+        <div className="hidden md:flex w-80 lg:w-96 shrink-0 h-full border-l border-white/10 bg-surface-card overflow-hidden">
           <ChatPanel
             messages={messages}
             onSendMessage={sendChatMessage}
@@ -549,7 +547,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
         {/* MOBILE VIEW (< md): JioHotstar-Style Live Stream Layout   */}
         {/* ========================================================= */}
         <div className="flex md:hidden flex-col flex-1 min-h-0 w-full overflow-hidden">
-          {/* Top Video Player (Fixed 16:9 Aspect Ratio) */}
+          {/* 1. Pinned 16:9 Video Player (Zero Letterbox Waste) */}
           <div
             ref={playerContainerRef}
             className="relative w-full aspect-video bg-black shrink-0 overflow-hidden border-b border-border-hairline shadow-md"
@@ -595,10 +593,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             )}
 
             {/* Overlays */}
-            <EmojiReactions
-              reactions={floatingReactions}
-              onSendReaction={sendReaction}
-            />
+            <EmojiReactions reactions={floatingReactions} />
             <CountdownOverlay countdown={room.countdown} ntp={ntp} />
             <BreakOverlay
               breakState={room.breakState}
@@ -607,7 +602,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
               onEndBreak={endBreak}
             />
 
-            {/* Mobile Fullscreen Action */}
+            {/* Fullscreen Button */}
             <div className="absolute bottom-2 right-2 z-30 flex items-center gap-1.5">
               <button
                 type="button"
@@ -619,9 +614,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             </div>
           </div>
 
-          {/* JioHotstar Style Tab Switcher: [💬 Live Chat (N)] vs [👥 Party & Audio (N)] */}
-          <div className="flex items-center justify-between border-b border-border-hairline bg-surface-elevated/90 px-3 py-1.5 shrink-0">
-            <div className="flex items-center gap-2">
+          {/* 2. JioHotstar Segmented Tabs Directly Underneath Video */}
+          <div className="flex items-center justify-between border-b border-border-hairline bg-surface-elevated/95 px-2.5 py-1 shrink-0">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => setMobileTab('chat')}
@@ -648,15 +643,30 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 }`}
               >
                 <Users className="h-3.5 w-3.5" />
-                <span>Party & Audio</span>
+                <span>Friends</span>
                 <span className="rounded-full bg-black/20 px-1.5 py-0.2 text-[10px] font-mono">
                   {room.participants.length}
                 </span>
               </button>
+
+              {isHost && (
+                <button
+                  type="button"
+                  onClick={() => setMobileTab('controls')}
+                  className={`flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-all ${
+                    mobileTab === 'controls'
+                      ? 'bg-amber-accent text-background shadow-glow'
+                      : 'text-zinc-400 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                  <span>Controls</span>
+                </button>
+              )}
             </div>
 
-            {/* Quick sync indicator / lock badge on mobile */}
-            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1">
+            {/* Quick sync badge */}
+            <span className="text-[10px] text-zinc-400 font-medium flex items-center gap-1 pr-1">
               {isHost ? (
                 <span className="text-amber-accent font-semibold">Host</span>
               ) : (
@@ -667,7 +677,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             </span>
           </div>
 
-          {/* Mobile Body Area: Fills remaining vertical height completely */}
+          {/* 3. Full Height Tab Content Area */}
           <div className="flex flex-1 min-h-0 w-full overflow-hidden">
             {mobileTab === 'chat' ? (
               <ChatPanel
@@ -677,34 +687,26 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 onSendReaction={sendReaction}
                 isOpen={true}
               />
-            ) : (
+            ) : mobileTab === 'party' ? (
               <div className="flex flex-1 flex-col overflow-y-auto p-3 space-y-3">
-                {/* Host Source Selector (if host) */}
-                {isHost && (
-                  <div className="rounded-xl border border-border-hairline bg-surface-card p-2.5 space-y-1.5">
-                    <span className="text-[11px] font-semibold text-zinc-300 uppercase tracking-wider">
-                      Stream Source (Host Control)
-                    </span>
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {(['ott', 'youtube', 'file', 'screen'] as MediaSourceType[]).map((tab) => (
-                        <button
-                          key={tab}
-                          type="button"
-                          onClick={() => handleTabChange(tab)}
-                          className={`rounded-lg py-1.5 text-xs font-medium transition-colors ${
-                            activeTab === tab
-                              ? 'bg-amber-accent text-background font-semibold'
-                              : 'bg-surface border border-border-hairline text-zinc-400 hover:text-white'
-                          }`}
-                        >
-                          {sourceLabels[tab]}
-                        </button>
-                      ))}
-                    </div>
+                <div className="rounded-xl border border-border-hairline bg-surface-card p-3 space-y-2">
+                  <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+                    <span>Party Voice &amp; Video</span>
+                    <span className="text-[11px] text-zinc-400 font-normal">{room.participants.length} connected</span>
                   </div>
-                )}
+                  <ParticipantStrip
+                    participants={room.participants}
+                    myId={myId}
+                    onToggleMic={toggleMic}
+                    onToggleCamera={toggleCamera}
+                    localMuted={localMuted}
+                    localCameraOn={localCameraOn}
+                    localStream={localStream}
+                    remoteStreams={remoteStreams}
+                  />
+                </div>
 
-                {/* Player Play/Pause and Seek Bar */}
+                {/* PlayerBar info on mobile */}
                 <PlayerBar
                   player={room.player}
                   participants={room.participants}
@@ -717,21 +719,47 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                   onStartBreak={startBreak}
                   onStartCountdown={startCountdown}
                 />
-
-                {/* Participant Camera & Mic Grid */}
-                <div className="space-y-1.5">
-                  <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                    Participants ({room.participants.length})
+              </div>
+            ) : (
+              /* Host Controls Tab */
+              <div className="flex flex-1 flex-col overflow-y-auto p-3 space-y-3">
+                <div className="rounded-xl border border-border-hairline bg-surface-card p-3 space-y-2">
+                  <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                    Change Stream Source
                   </span>
-                  <ParticipantStrip
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['ott', 'youtube', 'file', 'screen'] as MediaSourceType[]).map((tab) => (
+                      <button
+                        key={tab}
+                        type="button"
+                        onClick={() => handleTabChange(tab)}
+                        className={`rounded-xl py-2 text-xs font-medium transition-all ${
+                          activeTab === tab
+                            ? 'bg-amber-accent text-background font-semibold shadow-glow'
+                            : 'bg-surface border border-border-hairline text-zinc-400 hover:text-white'
+                        }`}
+                      >
+                        {sourceLabels[tab]}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-border-hairline bg-surface-card p-3 space-y-2">
+                  <span className="text-xs font-semibold text-zinc-300 uppercase tracking-wider">
+                    Playback &amp; Break
+                  </span>
+                  <PlayerBar
+                    player={room.player}
                     participants={room.participants}
-                    myId={myId}
-                    onToggleMic={toggleMic}
-                    onToggleCamera={toggleCamera}
-                    localMuted={localMuted}
-                    localCameraOn={localCameraOn}
-                    localStream={localStream}
-                    remoteStreams={remoteStreams}
+                    isHost={isHost}
+                    isReady={Boolean(currentParticipant?.isReady)}
+                    onPlay={play}
+                    onPause={pause}
+                    onSeek={seek}
+                    onToggleReady={() => toggleReady(Boolean(currentParticipant?.isReady))}
+                    onStartBreak={startBreak}
+                    onStartCountdown={startCountdown}
                   />
                 </div>
               </div>
