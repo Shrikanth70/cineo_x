@@ -81,6 +81,7 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
   const [localMuted, setLocalMuted] = useState(false);
   const [localCameraOn, setLocalCameraOn] = useState(false);
   const [mobileTab, setMobileTab] = useState<'chat' | 'party'>('chat');
+  const [remoteBroadcastStream, setRemoteBroadcastStream] = useState<MediaStream | null>(null);
 
   // Initialize WebRTC Mesh Manager for camera and microphone exchange
   useEffect(() => {
@@ -103,6 +104,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
           next.delete(peerId);
           return next;
         });
+      },
+      (stream) => {
+        setRemoteBroadcastStream(stream);
       }
     );
     rtcManagerRef.current = manager;
@@ -228,6 +232,20 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
     rtcManagerRef.current?.toggleCamera(next);
     toggleMedia({ cameraOn: next });
   };
+
+  const handleStartBroadcast = (stream: MediaStream) => {
+    rtcManagerRef.current?.setBroadcastStream(stream);
+  };
+
+  const handleStopBroadcast = () => {
+    rtcManagerRef.current?.setBroadcastStream(null);
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'screen' && activeTab !== 'file') {
+      rtcManagerRef.current?.setBroadcastStream(null);
+    }
+  }, [activeTab]);
 
   const toggleContainerFullscreen = () => {
     if (!playerContainerRef.current) return;
@@ -447,6 +465,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 player={room.player}
                 isHost={isHost}
                 onUpdateSource={setSource}
+                broadcastStream={remoteBroadcastStream}
+                onStartBroadcast={handleStartBroadcast}
+                onStopBroadcast={handleStopBroadcast}
               />
             )}
             {activeTab === 'screen' && (
@@ -454,6 +475,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 source={room.source}
                 isHost={isHost}
                 onUpdateSource={setSource}
+                broadcastStream={remoteBroadcastStream}
+                onStartBroadcast={handleStartBroadcast}
+                onStopBroadcast={handleStopBroadcast}
               />
             )}
 
@@ -554,6 +578,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 player={room.player}
                 isHost={isHost}
                 onUpdateSource={setSource}
+                broadcastStream={remoteBroadcastStream}
+                onStartBroadcast={handleStartBroadcast}
+                onStopBroadcast={handleStopBroadcast}
               />
             )}
             {activeTab === 'screen' && (
@@ -561,6 +588,9 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
                 source={room.source}
                 isHost={isHost}
                 onUpdateSource={setSource}
+                broadcastStream={remoteBroadcastStream}
+                onStartBroadcast={handleStartBroadcast}
+                onStopBroadcast={handleStopBroadcast}
               />
             )}
 

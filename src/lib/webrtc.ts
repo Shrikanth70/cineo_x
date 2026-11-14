@@ -1,7 +1,7 @@
 /**
  * WebRTC Mesh Manager (up to 8 peers)
  * Handles local media stream (camera/mic opt-in), peer connections, STUN/TURN ICE config,
- * and mesh signaling events.
+ * host media broadcasting (screen share & local video streaming), and mesh signaling events.
  */
 
 export interface IceConfig {
@@ -10,21 +10,34 @@ export interface IceConfig {
   credential?: string;
 }
 
+export interface BroadcastSignalInfo {
+  active: boolean;
+  streamId?: string;
+  videoTrackId?: string;
+  audioTrackId?: string;
+}
+
 export class WebRtcMeshManager {
   private localStream: MediaStream | null = null;
+  private broadcastStream: MediaStream | null = null;
   private peerConnections = new Map<string, RTCPeerConnection>();
   private onRemoteStreamCallback: ((peerId: string, stream: MediaStream) => void) | null = null;
   private onRemoteLeaveCallback: ((peerId: string) => void) | null = null;
+  private onRemoteBroadcastStreamCallback: ((stream: MediaStream | null) => void) | null = null;
   private sendSignalCallback: ((targetPeerId: string, signal: unknown) => void) | null = null;
+  private remoteBroadcastStream: MediaStream | null = null;
+  private remoteBroadcastInfo: BroadcastSignalInfo | null = null;
 
   constructor(
     sendSignal: (targetPeerId: string, signal: unknown) => void,
     onRemoteStream?: (peerId: string, stream: MediaStream) => void,
-    onRemoteLeave?: (peerId: string) => void
+    onRemoteLeave?: (peerId: string) => void,
+    onRemoteBroadcastStream?: (stream: MediaStream | null) => void
   ) {
     this.sendSignalCallback = sendSignal;
     this.onRemoteStreamCallback = onRemoteStream || null;
     this.onRemoteLeaveCallback = onRemoteLeave || null;
+    this.onRemoteBroadcastStreamCallback = onRemoteBroadcastStream || null;
   }
 
   private getRtcConfig(): RTCConfiguration {
@@ -49,6 +62,10 @@ export class WebRtcMeshManager {
     return this.localStream;
   }
 
+  public getBroadcastStream(): MediaStream | null {
+    return this.broadcastStream;
+  }
+
   public async acquireLocalMedia(audio = true, video = false): Promise<MediaStream | null> {
     if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       return null;
@@ -60,26 +77,80 @@ export class WebRtcMeshManager {
         video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } } : false,
       });
 
-      // Update existing peer connections with new tracks via sender.replaceTrack or addTrack
+      // Update existing peer connections with new tracks via sender.replaceTrack
       for (const [, pc] of this.peerConnections) {
-        this.localStream.getTracks().forEach((track) => {
-          const sender = pc.getSenders?.().find((s) => s.track?.kind === track.kind);
-          if (sender && sender.replaceTrack) {
-            sender.replaceTrack(track).catch(() => {});
-          } else if (pc.addTrack) {
-            try {
-              pc.addTrack(track, this.localStream!);
-            } catch {
-              // Ignore if already added
-            }
-          }
-        });
+        this.attachLocalStreamToPc(pc);
       }
 
       return this.localStream;
     } catch {
       // Permission denied or mock environment
       return null;
+    }
+  }
+
+  private attachLocalStreamToPc(pc: RTCPeerConnection): void {
+    if (!this.localStream) return;
+    const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+    const aSender = transceivers[0]?.sender;
+    const vSender = transceivers[1]?.sender;
+
+    const aTrack = this.localStream.getAudioTracks()[0] || null;
+    const vTrack = this.localStream.getVideoTracks()[0] || null;
+
+    if (aSender && aSender.replaceTrack) {
+      aSender.replaceTrack(aTrack).catch(() => {});
+    }
+    if (vSender && vSender.replaceTrack) {
+      vSender.replaceTrack(vTrack).catch(() => {});
+    }
+  }
+
+  private attachBroadcastStreamToPc(pc: RTCPeerConnection): void {
+    const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+    const bAudioSender = transceivers[2]?.sender;
+    const bVideoSender = transceivers[3]?.sender;
+
+    const aTrack = this.broadcastStream?.getAudioTracks()[0] || null;
+    const vTrack = this.broadcastStream?.getVideoTracks()[0] || null;
+
+    if (bAudioSender && bAudioSender.replaceTrack) {
+      bAudioSender.replaceTrack(aTrack).catch(() => {});
+    }
+    if (bVideoSender && bVideoSender.replaceTrack) {
+      bVideoSender.replaceTrack(vTrack).catch(() => {});
+    }
+  }
+
+  /**
+   * Set or update host broadcast stream (e.g. screen share or local video stream)
+   * Broadcasts to all connected peers in real-time.
+   */
+  public async setBroadcastStream(stream: MediaStream | null): Promise<void> {
+    this.broadcastStream = stream;
+
+    const audioTrack = stream?.getAudioTracks()[0] || null;
+    const videoTrack = stream?.getVideoTracks()[0] || null;
+
+    for (const [peerId, pc] of this.peerConnections) {
+      this.attachBroadcastStreamToPc(pc);
+
+      this.sendSignalCallback?.(peerId, {
+        type: 'broadcast-info',
+        active: Boolean(stream),
+        streamId: stream?.id,
+        videoTrackId: videoTrack?.id,
+        audioTrackId: audioTrack?.id,
+      });
+
+      // Renegotiate offer so the receiver immediately maps the newly active media tracks
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        this.sendSignalCallback?.(peerId, { type: 'offer', sdp: offer.sdp });
+      } catch {
+        // Ignore initial renegotiation error
+      }
     }
   }
 
@@ -125,6 +196,21 @@ export class WebRtcMeshManager {
   public async handleSignal(fromPeerId: string, signal: any): Promise<void> {
     if (!signal) return;
 
+    // Handle broadcast metadata signals
+    if (signal.type === 'broadcast-info') {
+      if (signal.active) {
+        this.remoteBroadcastInfo = signal;
+      } else {
+        this.remoteBroadcastInfo = null;
+        if (this.remoteBroadcastStream) {
+          this.remoteBroadcastStream.getTracks().forEach((t) => t.stop());
+          this.remoteBroadcastStream = null;
+        }
+        this.onRemoteBroadcastStreamCallback?.(null);
+      }
+      return;
+    }
+
     let pc = this.peerConnections.get(fromPeerId);
     if (!pc) {
       pc = this.createPeerConnection(fromPeerId);
@@ -152,28 +238,37 @@ export class WebRtcMeshManager {
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(this.getRtcConfig());
 
-    // Add default transceivers so passive listeners (mic/cam initially off) can immediately receive remote tracks
+    // 4 Transceivers for deterministic media routing:
+    // 0: User Audio (mic)
+    // 1: User Video (camera)
+    // 2: Broadcast Audio (host screen or video file sound)
+    // 3: Broadcast Video (host screen or video file video)
     try {
       if (pc.addTransceiver) {
         pc.addTransceiver('audio', { direction: 'sendrecv' });
         pc.addTransceiver('video', { direction: 'sendrecv' });
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        pc.addTransceiver('video', { direction: 'sendrecv' });
       }
     } catch {
-      // Ignore if transceiver already configured
+      // Ignore if transceivers are already configured
     }
 
     if (this.localStream) {
-      this.localStream.getTracks().forEach((track) => {
-        const sender = pc.getSenders?.().find((s) => s.track?.kind === track.kind);
-        if (sender && sender.replaceTrack) {
-          sender.replaceTrack(track).catch(() => {});
-        } else if (pc.addTrack) {
-          try {
-            pc.addTrack(track, this.localStream!);
-          } catch {
-            // Ignore
-          }
-        }
+      this.attachLocalStreamToPc(pc);
+    }
+
+    if (this.broadcastStream) {
+      this.attachBroadcastStreamToPc(pc);
+      // Inform the peer about active broadcast
+      const aTrack = this.broadcastStream.getAudioTracks()[0];
+      const vTrack = this.broadcastStream.getVideoTracks()[0];
+      this.sendSignalCallback?.(peerId, {
+        type: 'broadcast-info',
+        active: true,
+        streamId: this.broadcastStream.id,
+        videoTrackId: vTrack?.id,
+        audioTrackId: aTrack?.id,
       });
     }
 
@@ -184,8 +279,44 @@ export class WebRtcMeshManager {
     };
 
     pc.ontrack = (event) => {
-      const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
-      this.onRemoteStreamCallback?.(peerId, stream);
+      const transceivers = pc.getTransceivers ? pc.getTransceivers() : [];
+      const isBroadcastTransceiver =
+        Boolean(event.transceiver) &&
+        (event.transceiver === transceivers[2] || event.transceiver === transceivers[3]);
+
+      const isBroadcastSignalMatch =
+        Boolean(this.remoteBroadcastInfo?.active) &&
+        (event.track.id === this.remoteBroadcastInfo?.videoTrackId ||
+          event.track.id === this.remoteBroadcastInfo?.audioTrackId ||
+          event.streams[0]?.id === this.remoteBroadcastInfo?.streamId);
+
+      const isBroadcastHint =
+        event.track.label?.toLowerCase().includes('screen') ||
+        event.streams[0]?.id?.includes('screen') ||
+        event.streams[0]?.id?.includes('broadcast');
+
+      if (isBroadcastTransceiver || isBroadcastSignalMatch || isBroadcastHint) {
+        if (!this.remoteBroadcastStream) {
+          this.remoteBroadcastStream = new MediaStream();
+        }
+        if (!this.remoteBroadcastStream.getTracks().some((t) => t.id === event.track.id)) {
+          this.remoteBroadcastStream.addTrack(event.track);
+        }
+        this.onRemoteBroadcastStreamCallback?.(this.remoteBroadcastStream);
+
+        event.track.onended = () => {
+          if (this.remoteBroadcastStream) {
+            this.remoteBroadcastStream.removeTrack(event.track);
+            if (this.remoteBroadcastStream.getTracks().length === 0) {
+              this.remoteBroadcastStream = null;
+              this.onRemoteBroadcastStreamCallback?.(null);
+            }
+          }
+        };
+      } else {
+        const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
+        this.onRemoteStreamCallback?.(peerId, stream);
+      }
     };
 
     pc.onconnectionstatechange = () => {
@@ -215,6 +346,16 @@ export class WebRtcMeshManager {
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => track.stop());
       this.localStream = null;
+    }
+
+    if (this.broadcastStream) {
+      this.broadcastStream.getTracks().forEach((track) => track.stop());
+      this.broadcastStream = null;
+    }
+
+    if (this.remoteBroadcastStream) {
+      this.remoteBroadcastStream.getTracks().forEach((track) => track.stop());
+      this.remoteBroadcastStream = null;
     }
   }
 }
