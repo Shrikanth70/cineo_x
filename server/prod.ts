@@ -11,9 +11,6 @@ const handle = app.getRequestHandler();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.prepare().then(() => {
-  const wss = new WebSocketServer({ noServer: true });
-  setupWebSocketServer(wss);
-
   const server = http.createServer((req, res) => {
     const parsedUrl = parse(req.url || '/', true);
 
@@ -42,11 +39,15 @@ app.prepare().then(() => {
         'Cache-Control': 'no-store, no-cache, must-revalidate',
       });
       res.end(
-        JSON.stringify({
-          status: 'ok',
-          wsClients: wss.clients.size,
-          logs: wsDebugLogs,
-        }, null, 2)
+        JSON.stringify(
+          {
+            status: 'ok',
+            wsClients: wss.clients.size,
+            logs: wsDebugLogs,
+          },
+          null,
+          2
+        )
       );
       return;
     }
@@ -54,26 +55,9 @@ app.prepare().then(() => {
     handle(req, res, parsedUrl);
   });
 
-  server.on('upgrade', (req, socket, head) => {
-    console.log(`[Cinéo WS] Incoming upgrade request: url=${req.url} origin=${req.headers.origin || 'unknown'}`);
-    socket.on('error', (err: any) => {
-      // Ignore routine socket disconnect / reload teardown
-      if (
-        err?.code === 'ERR_STREAM_WRITE_AFTER_END' ||
-        err?.message?.includes('write after end') ||
-        err?.code === 'ECONNRESET' ||
-        err?.code === 'EPIPE'
-      ) {
-        return;
-      }
-      console.error('[Cinéo WS Socket Error]', err?.message);
-    });
-
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      console.log('[Cinéo WS] Client upgrade handshake completed successfully');
-      wss.emit('connection', ws, req);
-    });
-  });
+  // Attach HTTP server directly to WebSocketServer so ws handles upgrade & socket framing natively!
+  const wss = new WebSocketServer({ server });
+  setupWebSocketServer(wss);
 
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`[Cinéo] Production server listening on 0.0.0.0:${PORT} (Web + WS unified)`);
