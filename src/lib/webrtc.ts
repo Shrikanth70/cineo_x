@@ -27,6 +27,7 @@ export class WebRtcMeshManager {
   private sendSignalCallback: ((targetPeerId: string, signal: unknown) => void) | null = null;
   private remoteBroadcastStream: MediaStream | null = null;
   private remoteBroadcastInfo: BroadcastSignalInfo | null = null;
+  private remoteUserStreams = new Map<string, MediaStream>();
 
   constructor(
     sendSignal: (targetPeerId: string, signal: unknown) => void,
@@ -77,9 +78,16 @@ export class WebRtcMeshManager {
         video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } } : false,
       });
 
-      // Update existing peer connections with new tracks via sender.replaceTrack
-      for (const [, pc] of this.peerConnections) {
+      // Update existing peer connections with new tracks via sender.replaceTrack and renegotiate
+      for (const [peerId, pc] of this.peerConnections) {
         this.attachLocalStreamToPc(pc);
+        try {
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          this.sendSignalCallback?.(peerId, { type: 'offer', sdp: offer.sdp });
+        } catch {
+          // Ignore renegotiation race
+        }
       }
 
       return this.localStream;
@@ -314,8 +322,25 @@ export class WebRtcMeshManager {
           }
         };
       } else {
-        const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
+        let stream = this.remoteUserStreams.get(peerId);
+        if (!stream) {
+          stream = new MediaStream();
+          this.remoteUserStreams.set(peerId, stream);
+        }
+        if (!stream.getTracks().some((t) => t.id === event.track.id)) {
+          stream.addTrack(event.track);
+        }
         this.onRemoteStreamCallback?.(peerId, stream);
+
+        event.track.onended = () => {
+          const current = this.remoteUserStreams.get(peerId);
+          if (current) {
+            current.removeTrack(event.track);
+            if (current.getTracks().length === 0) {
+              this.remoteUserStreams.delete(peerId);
+            }
+          }
+        };
       }
     };
 
@@ -333,6 +358,7 @@ export class WebRtcMeshManager {
     if (pc) {
       pc.close();
       this.peerConnections.delete(peerId);
+      this.remoteUserStreams.delete(peerId);
       this.onRemoteLeaveCallback?.(peerId);
     }
   }
@@ -357,5 +383,7 @@ export class WebRtcMeshManager {
       this.remoteBroadcastStream.getTracks().forEach((track) => track.stop());
       this.remoteBroadcastStream = null;
     }
+
+    this.remoteUserStreams.clear();
   }
 }

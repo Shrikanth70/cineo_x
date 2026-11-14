@@ -37,12 +37,37 @@ export interface PartyRoomProps {
   roomCode: string;
 }
 
+// Background dedicated audio channel for remote voice communication
+function RemoteVoiceAudio({ stream }: { stream: MediaStream }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    if (audioRef.current && stream) {
+      audioRef.current.srcObject = stream;
+      audioRef.current.play().catch(() => {});
+    }
+  }, [stream]);
+
+  return <audio ref={audioRef} autoPlay playsInline />;
+}
+
 export function PartyRoom({ roomCode }: PartyRoomProps) {
   const rtcManagerRef = useRef<WebRtcMeshManager | null>(null);
   const playerContainerRef = useRef<HTMLDivElement>(null);
   const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map());
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile vs desktop view to ensure ONLY ONE player instance is mounted
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // WebRTC Signal dispatcher
   const handleRtcSignal = (fromPeerId: string, signal: unknown) => {
@@ -275,8 +300,82 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
     screen: 'Screen share',
   };
 
+  // Singular Player Content Component: Mounted only once in the DOM
+  const renderPlayerContent = () => (
+    <>
+      {activeTab === 'ott' && (
+        <OttSource
+          source={room.source}
+          isHost={isHost}
+          onUpdateSource={setSource}
+        />
+      )}
+      {activeTab === 'youtube' && (
+        <YouTubeSource
+          source={room.source}
+          player={room.player}
+          isHost={isHost}
+          onUpdateSource={setSource}
+          onPlayerSeek={seek}
+          onPlayerPlay={play}
+          onPlayerPause={pause}
+        />
+      )}
+      {activeTab === 'file' && (
+        <VideoFileSource
+          source={room.source}
+          player={room.player}
+          isHost={isHost}
+          onUpdateSource={setSource}
+          broadcastStream={remoteBroadcastStream}
+          onStartBroadcast={handleStartBroadcast}
+          onStopBroadcast={handleStopBroadcast}
+        />
+      )}
+      {activeTab === 'screen' && (
+        <ScreenShareSource
+          source={room.source}
+          isHost={isHost}
+          onUpdateSource={setSource}
+          broadcastStream={remoteBroadcastStream}
+          onStartBroadcast={handleStartBroadcast}
+          onStopBroadcast={handleStopBroadcast}
+        />
+      )}
+
+      {/* Overlays: Floating Reactions, Countdown, Break */}
+      <EmojiReactions reactions={floatingReactions} />
+      <CountdownOverlay countdown={room.countdown} ntp={ntp} />
+      <BreakOverlay
+        breakState={room.breakState}
+        ntp={ntp}
+        isHost={isHost}
+        onEndBreak={endBreak}
+      />
+
+      {/* Fullscreen Button */}
+      <div className="absolute bottom-2 right-2 z-30 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={toggleContainerFullscreen}
+          title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
+          className="flex h-7 w-7 sm:h-8 sm:w-8 items-center justify-center rounded-lg bg-black/70 border border-white/20 text-white backdrop-blur-md hover:bg-black/90 transition-all"
+        >
+          {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    </>
+  );
+
   return (
-    <div className="flex flex-col h-[100dvh] w-full bg-background overflow-hidden">
+    <div className="flex flex-col h-[100dvh] w-full bg-background overflow-hidden select-none">
+      {/* Global Dedicated Remote Audio Playback (Voice Chat) */}
+      <div className="hidden" aria-hidden="true">
+        {Array.from(remoteStreams.entries()).map(([peerId, stream]) => (
+          <RemoteVoiceAudio key={peerId} stream={stream} />
+        ))}
+      </div>
+
       {/* ========================================================= */}
       {/* Top Header Bar (Unified for Both Desktop & Mobile)        */}
       {/* ========================================================= */}
@@ -437,73 +536,15 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
             </div>
           )}
 
-          {/* Grand 16:9 Cinema Player Stage */}
-          <div
-            ref={playerContainerRef}
-            className="relative w-full aspect-video max-h-[calc(100dvh-200px)] rounded-2xl border border-white/10 bg-black overflow-hidden flex items-center justify-center shadow-2xl mx-auto my-auto"
-          >
-            {activeTab === 'ott' && (
-              <OttSource
-                source={room.source}
-                isHost={isHost}
-                onUpdateSource={setSource}
-              />
-            )}
-            {activeTab === 'youtube' && (
-              <YouTubeSource
-                source={room.source}
-                player={room.player}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                onPlayerSeek={seek}
-                onPlayerPlay={play}
-                onPlayerPause={pause}
-              />
-            )}
-            {activeTab === 'file' && (
-              <VideoFileSource
-                source={room.source}
-                player={room.player}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                broadcastStream={remoteBroadcastStream}
-                onStartBroadcast={handleStartBroadcast}
-                onStopBroadcast={handleStopBroadcast}
-              />
-            )}
-            {activeTab === 'screen' && (
-              <ScreenShareSource
-                source={room.source}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                broadcastStream={remoteBroadcastStream}
-                onStartBroadcast={handleStartBroadcast}
-                onStopBroadcast={handleStopBroadcast}
-              />
-            )}
-
-            {/* Overlays: Floating Reactions, Countdown, Break */}
-            <EmojiReactions reactions={floatingReactions} />
-            <CountdownOverlay countdown={room.countdown} ntp={ntp} />
-            <BreakOverlay
-              breakState={room.breakState}
-              ntp={ntp}
-              isHost={isHost}
-              onEndBreak={endBreak}
-            />
-
-            {/* Fullscreen toggle button on player */}
-            <div className="absolute bottom-3 right-3 z-30 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={toggleContainerFullscreen}
-                title={isFullscreen ? 'Exit Fullscreen' : 'Enter Fullscreen'}
-                className="flex h-8 w-8 items-center justify-center rounded-lg bg-black/60 border border-white/10 text-white backdrop-blur-md hover:bg-black/80 transition-all"
-              >
-                {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-              </button>
+          {/* Grand 16:9 Cinema Player Stage (Rendered ONLY on Desktop) */}
+          {!isMobile && (
+            <div
+              ref={playerContainerRef}
+              className="relative w-full aspect-video max-h-[calc(100dvh-200px)] rounded-2xl border border-white/10 bg-black overflow-hidden flex items-center justify-center shadow-2xl mx-auto my-auto"
+            >
+              {renderPlayerContent()}
             </div>
-          </div>
+          )}
 
           {/* Bottom Controls: Unified Player Bar & Sleek Participant Dock */}
           <div className="mt-3 space-y-2.5 shrink-0">
@@ -547,72 +588,15 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
         {/* MOBILE VIEW (< md): JioHotstar-Style Live Stream Layout   */}
         {/* ========================================================= */}
         <div className="flex md:hidden flex-col flex-1 min-h-0 w-full overflow-hidden">
-          {/* 1. Pinned 16:9 Video Player (Zero Letterbox Waste) */}
-          <div
-            ref={playerContainerRef}
-            className="relative w-full aspect-video bg-black shrink-0 overflow-hidden border-b border-border-hairline shadow-md"
-          >
-            {activeTab === 'ott' && (
-              <OttSource
-                source={room.source}
-                isHost={isHost}
-                onUpdateSource={setSource}
-              />
-            )}
-            {activeTab === 'youtube' && (
-              <YouTubeSource
-                source={room.source}
-                player={room.player}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                onPlayerSeek={seek}
-                onPlayerPlay={play}
-                onPlayerPause={pause}
-              />
-            )}
-            {activeTab === 'file' && (
-              <VideoFileSource
-                source={room.source}
-                player={room.player}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                broadcastStream={remoteBroadcastStream}
-                onStartBroadcast={handleStartBroadcast}
-                onStopBroadcast={handleStopBroadcast}
-              />
-            )}
-            {activeTab === 'screen' && (
-              <ScreenShareSource
-                source={room.source}
-                isHost={isHost}
-                onUpdateSource={setSource}
-                broadcastStream={remoteBroadcastStream}
-                onStartBroadcast={handleStartBroadcast}
-                onStopBroadcast={handleStopBroadcast}
-              />
-            )}
-
-            {/* Overlays */}
-            <EmojiReactions reactions={floatingReactions} />
-            <CountdownOverlay countdown={room.countdown} ntp={ntp} />
-            <BreakOverlay
-              breakState={room.breakState}
-              ntp={ntp}
-              isHost={isHost}
-              onEndBreak={endBreak}
-            />
-
-            {/* Fullscreen Button */}
-            <div className="absolute bottom-2 right-2 z-30 flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={toggleContainerFullscreen}
-                className="flex h-7 w-7 items-center justify-center rounded bg-black/70 border border-white/20 text-white backdrop-blur-md"
-              >
-                {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
-              </button>
+          {/* 1. Pinned 16:9 Video Player (Rendered ONLY on Mobile) */}
+          {isMobile && (
+            <div
+              ref={playerContainerRef}
+              className="relative w-full aspect-video bg-black shrink-0 overflow-hidden border-b border-border-hairline shadow-md"
+            >
+              {renderPlayerContent()}
             </div>
-          </div>
+          )}
 
           {/* 2. JioHotstar Segmented Tabs Directly Underneath Video */}
           <div className="flex items-center justify-between border-b border-border-hairline bg-surface-elevated/95 px-2.5 py-1 shrink-0">

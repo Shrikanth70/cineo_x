@@ -21,6 +21,7 @@ function VideoTile({ stream, isMuted }: { stream: MediaStream | null; isMuted?: 
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {});
     }
   }, [stream]);
 
@@ -32,24 +33,9 @@ function VideoTile({ stream, isMuted }: { stream: MediaStream | null; isMuted?: 
       autoPlay
       playsInline
       muted={isMuted}
-      className="absolute inset-0 h-full w-full object-cover rounded-full"
+      className="absolute inset-0 h-full w-full object-cover rounded-xl"
     />
   );
-}
-
-function RemoteAudio({ stream }: { stream: MediaStream | null }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  useEffect(() => {
-    if (audioRef.current && stream) {
-      audioRef.current.srcObject = stream;
-      audioRef.current.play().catch(() => {});
-    }
-  }, [stream]);
-
-  if (!stream) return null;
-
-  return <audio ref={audioRef} autoPlay playsInline />;
 }
 
 export function ParticipantStrip({
@@ -71,6 +57,86 @@ export function ParticipantStrip({
         const hasCamera = isMe ? localCameraOn : p.cameraOn;
         const peerStream = !isMe && remoteStreams ? remoteStreams.get(p.id) || null : null;
 
+        // When participant has camera on: render prominent, visible camera card
+        if (hasCamera) {
+          return (
+            <div
+              key={p.id}
+              className="relative flex flex-col justify-between rounded-xl border-2 border-emerald-400/80 bg-black w-32 sm:w-36 h-24 sm:h-28 overflow-hidden shrink-0 shadow-lg"
+            >
+              <div className="absolute inset-0">
+                {isMe && localStream ? (
+                  <VideoTile stream={localStream} isMuted={true} />
+                ) : !isMe && peerStream ? (
+                  <VideoTile stream={peerStream} isMuted={false} />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-3xl">
+                    {meta.emoji}
+                  </div>
+                )}
+              </div>
+
+              {/* Top overlay: Name & Host crown */}
+              <div className="relative z-10 flex items-center justify-between p-1.5 bg-gradient-to-b from-black/80 to-transparent">
+                <span className="flex items-center gap-1 min-w-0">
+                  {p.isHost && (
+                    <Crown className="h-3 w-3 text-amber-accent fill-amber-accent shrink-0" />
+                  )}
+                  <span className="text-[10px] font-semibold text-white truncate max-w-[80px]">
+                    {p.name} {isMe ? '(You)' : ''}
+                  </span>
+                </span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    p.isReady ? 'bg-emerald-400' : 'bg-zinc-500'
+                  }`}
+                />
+              </div>
+
+              {/* Bottom overlay: Mic toggle */}
+              <div className="relative z-10 flex items-center justify-between p-1.5 bg-gradient-to-t from-black/80 to-transparent">
+                {isMe ? (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={onToggleMic}
+                      className={`p-1 rounded-full ${
+                        localMuted
+                          ? 'bg-rose-500 text-white'
+                          : 'bg-black/60 text-emerald-400'
+                      }`}
+                      title={localMuted ? 'Unmute' : 'Mute'}
+                    >
+                      {localMuted ? (
+                        <MicOff className="h-2.5 w-2.5" />
+                      ) : (
+                        <Mic className="h-2.5 w-2.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onToggleCamera}
+                      className="p-1 rounded-full bg-amber-accent text-background"
+                      title="Turn camera off"
+                    >
+                      <Video className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-1 rounded-full bg-black/60">
+                    {isMuted ? (
+                      <MicOff className="h-2.5 w-2.5 text-rose-400" />
+                    ) : (
+                      <Mic className="h-2.5 w-2.5 text-emerald-400" />
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        }
+
+        // When camera is off: render sleek avatar capsule
         return (
           <div
             key={p.id}
@@ -78,18 +144,7 @@ export function ParticipantStrip({
           >
             {/* Round Avatar Container */}
             <div className="relative flex h-8 w-8 items-center justify-center rounded-full bg-surface-elevated text-lg border border-white/10 overflow-hidden shrink-0">
-              {isMe && hasCamera && localStream ? (
-                <VideoTile stream={localStream} isMuted={true} />
-              ) : !isMe && hasCamera && peerStream ? (
-                <VideoTile stream={peerStream} isMuted={false} />
-              ) : (
-                <span>{meta.emoji}</span>
-              )}
-
-              {/* Background remote audio playback */}
-              {!isMe && peerStream && <RemoteAudio stream={peerStream} />}
-
-              {/* Ready status indicator dot */}
+              <span>{meta.emoji}</span>
               <span
                 className={`absolute top-0 right-0 h-2 w-2 rounded-full ring-1 ring-black ${
                   p.isReady ? 'bg-emerald-400' : 'bg-zinc-600'
@@ -116,7 +171,7 @@ export function ParticipantStrip({
               </span>
             </div>
 
-            {/* Mic / Camera State or Quick Actions for 'Me' */}
+            {/* Mic / Camera Quick Toggles for 'Me' */}
             {isMe ? (
               <div className="flex items-center gap-0.5 border-l border-white/10 pl-1.5">
                 <button
