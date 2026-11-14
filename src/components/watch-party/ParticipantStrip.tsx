@@ -43,6 +43,9 @@ function RemoteAudio({ stream }: { stream: MediaStream | null }) {
   useEffect(() => {
     if (audioRef.current && stream) {
       audioRef.current.srcObject = stream;
+      audioRef.current.play().catch(() => {
+        // Handled: browser autoplay policy will resume audio on next user interaction
+      });
     }
   }, [stream]);
 

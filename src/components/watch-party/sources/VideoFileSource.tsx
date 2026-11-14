@@ -72,9 +72,14 @@ export function VideoFileSource({
       video.pause();
     }
 
-    // Check drift > 0.4s
-    if (Math.abs(video.currentTime - player.position) > 0.4) {
-      video.currentTime = player.position;
+    // Authoritative target accounting for elapsed playback time since server sync
+    const target = player.playing && player.serverTs
+      ? player.position + ((Date.now() - player.serverTs) / 1000) * (player.rate || 1)
+      : player.position;
+
+    // Resync when drift exceeds 0.5s
+    if (Math.abs(video.currentTime - target) > 0.5) {
+      video.currentTime = target;
     }
   }, [player, localFileUrl]);
 

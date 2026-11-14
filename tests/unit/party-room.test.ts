@@ -71,6 +71,7 @@ describe('PartyRoom component rendering with full room state', () => {
       toggleHandRaised: vi.fn(),
       toggleMedia: vi.fn(),
       sendRtcSignal: vi.fn(),
+      reconnect: vi.fn(),
     });
 
     const html = renderToString(React.createElement(PartyRoom, { roomCode: 'CIN-TEST' }));

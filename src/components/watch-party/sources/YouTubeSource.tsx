@@ -46,10 +46,23 @@ export function YouTubeSource({
     });
   };
 
+  // Authoritative live position accounting for elapsed time since host server timestamp
+  const livePosition = Math.max(
+    0,
+    Math.floor(
+      player.position +
+        (player.playing && player.serverTs
+          ? ((Date.now() - player.serverTs) / 1000) * (player.rate || 1)
+          : 0)
+    )
+  );
+
   const iframeSrc = currentVideoId
     ? `https://www.youtube-nocookie.com/embed/${currentVideoId}?autoplay=${
         player.playing ? '1' : '0'
-      }&enablejsapi=1&origin=${typeof window !== 'undefined' ? window.location.origin : ''}`
+      }&start=${livePosition}&enablejsapi=1&origin=${
+        typeof window !== 'undefined' ? window.location.origin : ''
+      }`
     : null;
 
   return (

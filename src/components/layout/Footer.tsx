@@ -1,8 +1,18 @@
+'use client';
+
 import React from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { BRAND_NAME, BRAND_CONFIG } from '@/config/brand';
 
 export function Footer() {
+  const pathname = usePathname();
+
+  // Hide global marketing footer in live watch party rooms to give 100% viewport space to video & chat
+  if (pathname?.startsWith('/watch-party/')) {
+    return null;
+  }
+
   return (
     <footer className="border-t border-border-hairline bg-surface/80 text-zinc-400 text-xs">
       <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">

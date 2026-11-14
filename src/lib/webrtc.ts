@@ -45,6 +45,10 @@ export class WebRtcMeshManager {
     return { iceServers };
   }
 
+  public getLocalStream(): MediaStream | null {
+    return this.localStream;
+  }
+
   public async acquireLocalMedia(audio = true, video = false): Promise<MediaStream | null> {
     if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
       return null;
@@ -56,10 +60,19 @@ export class WebRtcMeshManager {
         video: video ? { width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { max: 24 } } : false,
       });
 
-      // Update existing peer connections with new tracks
+      // Update existing peer connections with new tracks via sender.replaceTrack or addTrack
       for (const [, pc] of this.peerConnections) {
         this.localStream.getTracks().forEach((track) => {
-          pc.addTrack(track, this.localStream!);
+          const sender = pc.getSenders?.().find((s) => s.track?.kind === track.kind);
+          if (sender && sender.replaceTrack) {
+            sender.replaceTrack(track).catch(() => {});
+          } else if (pc.addTrack) {
+            try {
+              pc.addTrack(track, this.localStream!);
+            } catch {
+              // Ignore if already added
+            }
+          }
         });
       }
 
@@ -84,6 +97,9 @@ export class WebRtcMeshManager {
     });
   }
 
+  /**
+   * Initiate a peer connection to a target participant
+   */
   public async initiateConnection(targetPeerId: string): Promise<void> {
     if (this.peerConnections.has(targetPeerId)) return;
 
@@ -97,6 +113,13 @@ export class WebRtcMeshManager {
     } catch {
       // Ignore initial negotiation error
     }
+  }
+
+  /**
+   * Alias for initiateConnection to guarantee compatibility
+   */
+  public async call(targetPeerId: string): Promise<void> {
+    return this.initiateConnection(targetPeerId);
   }
 
   public async handleSignal(fromPeerId: string, signal: any): Promise<void> {
@@ -129,9 +152,28 @@ export class WebRtcMeshManager {
   private createPeerConnection(peerId: string): RTCPeerConnection {
     const pc = new RTCPeerConnection(this.getRtcConfig());
 
+    // Add default transceivers so passive listeners (mic/cam initially off) can immediately receive remote tracks
+    try {
+      if (pc.addTransceiver) {
+        pc.addTransceiver('audio', { direction: 'sendrecv' });
+        pc.addTransceiver('video', { direction: 'sendrecv' });
+      }
+    } catch {
+      // Ignore if transceiver already configured
+    }
+
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => {
-        pc.addTrack(track, this.localStream!);
+        const sender = pc.getSenders?.().find((s) => s.track?.kind === track.kind);
+        if (sender && sender.replaceTrack) {
+          sender.replaceTrack(track).catch(() => {});
+        } else if (pc.addTrack) {
+          try {
+            pc.addTrack(track, this.localStream!);
+          } catch {
+            // Ignore
+          }
+        }
       });
     }
 
@@ -142,9 +184,8 @@ export class WebRtcMeshManager {
     };
 
     pc.ontrack = (event) => {
-      if (event.streams && event.streams[0]) {
-        this.onRemoteStreamCallback?.(peerId, event.streams[0]);
-      }
+      const stream = (event.streams && event.streams[0]) || new MediaStream([event.track]);
+      this.onRemoteStreamCallback?.(peerId, stream);
     };
 
     pc.onconnectionstatechange = () => {
@@ -177,4 +218,3 @@ export class WebRtcMeshManager {
     }
   }
 }
-
