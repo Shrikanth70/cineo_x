@@ -198,10 +198,30 @@ export function PartyRoom({ roomCode }: PartyRoomProps) {
 
   if (!room) {
     return (
-      <div className="flex min-h-[70vh] flex-col items-center justify-center p-6 text-center">
+      <div className="flex min-h-[70vh] flex-col items-center justify-center p-6 text-center max-w-md mx-auto">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-amber-accent border-t-transparent mb-4" />
         <h2 className="font-serif text-xl font-bold text-white">Connecting to Cinéo Room...</h2>
         <p className="mt-1 text-xs text-zinc-400">Synchronizing with host and room presence.</p>
+
+        <div className="mt-6 rounded-2xl border border-white/10 bg-surface-card p-4 text-left text-xs text-zinc-300 space-y-2.5 w-full">
+          <div className="flex items-center justify-between text-[11px] text-zinc-400 border-b border-white/5 pb-2">
+            <span>Status:</span>
+            <span className="font-semibold text-amber-accent uppercase tracking-wider">{status}</span>
+          </div>
+          <p className="text-[11px] text-zinc-400 leading-relaxed">
+            • <strong>Render Free Tier:</strong> If your backend was asleep, Render takes ~30–50s on the first request to wake the container.
+          </p>
+          <p className="text-[11px] text-zinc-400 leading-relaxed">
+            • <strong>Vercel Deployment:</strong> If frontend is on Vercel, ensure <code>NEXT_PUBLIC_WS_URL</code> is set to your Render URL and redeployed.
+          </p>
+        </div>
+
+        <button
+          onClick={() => window.location.reload()}
+          className="mt-4 rounded-full border border-amber-border bg-amber-dim px-5 py-2 text-xs font-semibold text-amber-accent hover:bg-amber-accent hover:text-background transition-colors"
+        >
+          Refresh & Retry
+        </button>
       </div>
     );
   }
