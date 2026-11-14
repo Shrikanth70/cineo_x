@@ -238,35 +238,45 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
         setStatus('disconnected');
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
 
+        // Do not auto-reconnect on normal intentional unmount closure
+        if (event.code === 1000) return;
+
         // Schedule exponential backoff reconnect
         const delay = Math.min(1000 * Math.pow(1.5, reconnectAttemptsRef.current), 8000);
         reconnectAttemptsRef.current += 1;
         if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = setTimeout(() => {
-          connect();
+          connectRef.current();
         }, delay);
       };
 
       socket.onerror = (err) => {
         console.error('[Cinéo WS Client] Socket error occurred:', err);
-        socket.close();
       };
     } catch {
       setStatus('disconnected');
     }
   }, [getWsUrl, ping, send, roomCode, initialParticipantId]);
 
+  const connectRef = useRef(connect);
   useEffect(() => {
-    connect();
+    connectRef.current = connect;
+  }, [connect]);
+
+  // Lifecycle tied ONLY to roomCode, preventing unmount loops on state updates
+  useEffect(() => {
+    connectRef.current();
     return () => {
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
       hasSentJoinRef.current = false;
       if (wsRef.current) {
-        wsRef.current.close();
+        console.log('[Cinéo WS Client] Unmounting room session, closing socket cleanly');
+        wsRef.current.close(1000, 'Room unmount');
+        wsRef.current = null;
       }
     };
-  }, [connect]);
+  }, [roomCode]);
 
   const join = useCallback(
     (name: string, avatar: AvatarId, agreed18Plus: boolean, movieModeMic = false) => {
