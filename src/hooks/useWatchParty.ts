@@ -49,7 +49,17 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
     movieModeMic: boolean;
   } | null>(null);
 
-  const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
+  const getWsUrl = useCallback(() => {
+    if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+    if (typeof window !== 'undefined') {
+      const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      if (window.location.port === '3000') {
+        return `${proto}//${window.location.hostname}:3001`;
+      }
+      return `${proto}//${window.location.host}`;
+    }
+    return 'ws://localhost:3001';
+  }, []);
 
   const send = useCallback((msg: ClientMessage) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -72,7 +82,7 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
     setStatus(reconnectAttemptsRef.current === 0 ? 'connecting' : 'reconnecting');
 
     try {
-      const socket = new WebSocket(wsUrl);
+      const socket = new WebSocket(getWsUrl());
       wsRef.current = socket;
 
       socket.onopen = () => {
@@ -224,7 +234,7 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
     } catch {
       setStatus('disconnected');
     }
-  }, [wsUrl, ping, send, roomCode, initialParticipantId]);
+  }, [getWsUrl, ping, send, roomCode, initialParticipantId]);
 
   useEffect(() => {
     connect();

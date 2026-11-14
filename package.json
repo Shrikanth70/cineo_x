@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "concurrently -k -n \"WEB,WS\" -c \"cyan,magenta\" \"next dev -p 3000\" \"tsx server/index.ts\"",
     "build": "next build",
-    "start": "concurrently -k -n \"WEB,WS\" -c \"cyan,magenta\" \"next start -p 3000\" \"tsx server/index.ts\"",
+    "start": "tsx server/prod.ts",
+    "start:standalone": "concurrently -k -n \"WEB,WS\" -c \"cyan,magenta\" \"next start\" \"tsx server/index.ts\"",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",
     "test": "vitest run",
@@ -21,6 +22,7 @@
     "react-dom": "18.3.1",
     "tailwind-merge": "2.5.4",
     "three": "0.170.0",
+    "tsx": "4.19.1",
     "ws": "8.18.0",
     "zod": "3.23.8"
   },
@@ -37,7 +39,6 @@
     "eslint-config-next": "14.2.18",
     "postcss": "8.4.47",
     "tailwindcss": "3.4.14",
-    "tsx": "4.19.1",
     "typescript": "5.5.4",
     "vitest": "2.1.3"
   }
