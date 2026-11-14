@@ -151,6 +151,7 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
       socket.onmessage = (event) => {
         try {
           const data: ServerMessage = JSON.parse(event.data);
+          console.log('[Cinéo WS Client] Received message:', data.type);
 
           switch (data.type) {
             case 'pong': {
@@ -231,7 +232,8 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
+        console.warn(`[Cinéo WS Client] Closed code=${event.code} reason="${event.reason || 'none'}" clean=${event.wasClean}`);
         setStatus('disconnected');
         if (pingIntervalRef.current) clearInterval(pingIntervalRef.current);
 
@@ -244,7 +246,8 @@ export function useWatchParty({ roomCode, initialParticipantId, onRtcSignal }: U
         }, delay);
       };
 
-      socket.onerror = () => {
+      socket.onerror = (err) => {
+        console.error('[Cinéo WS Client] Socket error occurred:', err);
         socket.close();
       };
     } catch {

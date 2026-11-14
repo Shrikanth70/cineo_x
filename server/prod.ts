@@ -2,7 +2,7 @@ import http from 'http';
 import { parse } from 'url';
 import next from 'next';
 import { WebSocketServer } from 'ws';
-import { setupWebSocketServer } from './ws-handler';
+import { setupWebSocketServer, wsDebugLogs } from './ws-handler';
 
 const dev = false;
 const app = next({ dev, dir: process.cwd() });
@@ -32,6 +32,21 @@ app.prepare().then(() => {
           uptimeSeconds: Math.floor(process.uptime()),
           timestamp: Date.now(),
         })
+      );
+      return;
+    }
+
+    if (parsedUrl.pathname === '/debug-ws') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+      });
+      res.end(
+        JSON.stringify({
+          status: 'ok',
+          wsClients: wss.clients.size,
+          logs: wsDebugLogs,
+        }, null, 2)
       );
       return;
     }

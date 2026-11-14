@@ -11,13 +11,30 @@ interface ClientSession {
   chatTimestamps: number[];
 }
 
+export const wsDebugLogs: string[] = [];
+
+function logDebug(msg: string) {
+  const line = `[${new Date().toISOString()}] ${msg}`;
+  console.log(line);
+  wsDebugLogs.push(line);
+  if (wsDebugLogs.length > 100) wsDebugLogs.shift();
+}
+
 export function setupWebSocketServer(wss: WebSocketServer): void {
   const clientSessions = new Map<WebSocket, ClientSession>();
   const participantSockets = new Map<string, WebSocket>();
 
   function send(ws: WebSocket, message: ServerMessage): void {
-    if (ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify(message));
+    if (ws.readyState === 1 || ws.readyState === (WebSocket as any)?.OPEN) {
+      try {
+        const payload = JSON.stringify(message);
+        ws.send(payload);
+        logDebug(`SENT ${message.type} (length=${payload.length})`);
+      } catch (err: any) {
+        logDebug(`ERROR sending ${message.type}: ${err?.message}`);
+      }
+    } else {
+      logDebug(`CANNOT SEND ${message.type}: readyState is ${ws.readyState}`);
     }
   }
 
@@ -67,19 +84,22 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
       chatTimestamps: [],
     };
     clientSessions.set(ws, session);
-    console.log(`[Cinéo WS] New client connected. Total connected clients: ${clientSessions.size}`);
+    logDebug(`NEW CLIENT CONNECTED. Active clientSessions=${clientSessions.size}, wss.clients=${wss.clients.size}`);
 
     ws.on('message', (raw) => {
+      const rawStr = raw.toString();
+      logDebug(`RECV RAW MESSAGE: ${rawStr.slice(0, 120)}`);
       try {
-        const parsedJson = JSON.parse(raw.toString());
+        const parsedJson = JSON.parse(rawStr);
         const result = ClientMessageSchema.safeParse(parsedJson);
 
         if (!result.success) {
-          console.warn('[Cinéo WS] Ignored invalid client message:', result.error.format());
+          logDebug(`INVALID MESSAGE: ${JSON.stringify(result.error.format())}`);
           return;
         }
 
         const msg = result.data;
+        logDebug(`PARSED VALID MESSAGE: type=${msg.type}`);
 
         // Handle Ping immediately for NTP synchronization
         if (msg.type === 'ping') {
@@ -325,17 +345,19 @@ export function setupWebSocketServer(wss: WebSocketServer): void {
             break;
           }
         }
-      } catch {
-        // Discard invalid JSON
+      } catch (err: any) {
+        logDebug(`EXCEPTION in message handler: ${err?.message}`);
       }
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      logDebug(`CLIENT DISCONNECTED (code=${code}, reason="${reason.toString()}")`);
       handleClientLeave(ws, session);
       clientSessions.delete(ws);
     });
 
-    ws.on('error', () => {
+    ws.on('error', (err) => {
+      logDebug(`WS ERROR for client: ${err?.message}`);
       handleClientLeave(ws, session);
       clientSessions.delete(ws);
     });
